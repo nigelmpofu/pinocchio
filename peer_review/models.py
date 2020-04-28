@@ -1,14 +1,13 @@
-from datetime import datetime, date
+from datetime import datetime, timedelta
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.core.management import call_command
 from django.db import models
 from django.utils import timezone
-from peer_review.email import generate_otp_email
 
 
 class Document(models.Model):
-    docfile = models.FileField(upload_to='documents')
+    doc_file = models.FileField(upload_to='documents')
 
 
 class QuestionType(models.Model):
@@ -27,16 +26,15 @@ class QuestionGrouping(models.Model):
 
 class Question(models.Model):
     questionText = models.CharField(max_length=1000)
-    questionLabel = models.CharField(max_length=300, unique=True)
+    questionLabel = models.CharField(max_length=255, unique=True)
     pubDate = models.DateTimeField('date published')
     questionType = models.ForeignKey(QuestionType)
-    questionGrouping = models.ForeignKey(QuestionGrouping)
 
     def __str__(self):
         return self.questionText
 
     def was_published_recently(self):
-        return self.pubDate >= timezone.now() - datetime.timedelta(days=1)
+        return self.pubDate >= timezone.now() - timedelta(days=1)
 
     @staticmethod
     def make_dump():
@@ -104,14 +102,6 @@ class Rate(models.Model):
     optional = models.BooleanField(default=False)
 
 
-class Label(models.Model):
-    question = models.ForeignKey(Question)
-    labelText = models.CharField(max_length=200)
-
-    def __str__(self):
-        return self.labelText
-
-
 class UserManager(BaseUserManager):
     def create_user(self, email, password, name, surname, **kwargs):
         user = self.model(
@@ -144,15 +134,15 @@ class User(AbstractBaseUser, PermissionsMixin):
     name = models.CharField(max_length=50)
     surname = models.CharField(max_length=50)
     cell = models.CharField(max_length=10)
-    email = models.EmailField(max_length=254, unique=True)
+    email = models.EmailField(max_length=254)
 
-    userId = models.CharField(max_length=12, primary_key=True)
+    user_id = models.CharField(max_length=12, primary_key=True)
     OTP = models.BooleanField(default=True)
     status = models.CharField(max_length=1)
 
-    USERNAME_FIELD = 'userId'
+    USERNAME_FIELD = 'user_id'
     # TODO Add more required fields maybe
-    # REQUIRED_FIELDS = ['status']
+    REQUIRED_FIELDS = ['email']
 
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True, help_text='Designates whether this user should be treated as active. '
@@ -172,10 +162,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return self.email + " - " + self.surname + " " + self.initials
 
+    def is_admin(self):
+        return self.is_staff or self.status == "A" or self.is_superuser
+
 
 class Questionnaire(models.Model):
     intro = models.CharField(max_length=1000)
-    label = models.CharField(max_length=300, unique=True)
+    label = models.CharField(max_length=255, unique=True)
     questionOrders = models.ManyToManyField(Question, through='QuestionOrder')
 
     def __str__(self):
@@ -185,10 +178,19 @@ class Questionnaire(models.Model):
 class QuestionOrder(models.Model):
     questionnaire = models.ForeignKey(Questionnaire)
     question = models.ForeignKey(Question)
+    questionGrouping = models.ForeignKey(QuestionGrouping, default=4) # default: None
     order = models.IntegerField(default=1)
 
     def __str__(self):
         return self.question.questionLabel
+
+
+class Label(models.Model):
+    questionOrder = models.ForeignKey(QuestionOrder)
+    labelText = models.CharField(max_length=200)
+
+    def __str__(self):
+        return self.labelText
 
 
 class RoundDetail(models.Model):
@@ -218,31 +220,34 @@ class TeamDetail(models.Model):
 
     def __str__(self):
         return self.roundDetail.description + " " + self.teamName + " (" + self.user.surname + ", " \
-               + self.user.initials + ")"
+            + self.user.initials + ")"
 
     def is_active(self):
-        return self.roundDetail.startingDate < datetime.now(tz=timezone.get_current_timezone()) < self.roundDetail.endingDate
+        starting_date = self.roundDetail.startingDate
+        ending_date = self.roundDetail.endingDate
+        return starting_date < datetime.now(tz=timezone.get_current_timezone()) < ending_date
 
     def is_in_progress(self):
-        return self.status == TeamDetail.IN_PROGRESS# and self.is_active()
+        return self.status == TeamDetail.IN_PROGRESS
 
     def is_completed(self):
-        return self.status == TeamDetail.IN_PROGRESS and datetime.now(tz=timezone.get_current_timezone())>self.roundDetail.endingDate
+        return self.is_in_progress() and self.is_in_past();
 
     def is_not_attempted(self):
-        return self.status == TeamDetail.NOT_ATTEMPTED and datetime.now(tz=timezone.get_current_timezone())<self.roundDetail.endingDate
+        return self.status == TeamDetail.NOT_ATTEMPTED
 
     def is_expired(self):
-        return self.status == TeamDetail.NOT_ATTEMPTED and datetime.now(tz=timezone.get_current_timezone())>self.roundDetail.endingDate
+        return datetime.now(tz=timezone.get_current_timezone()) > self.roundDetail.endingDate
 
     def is_in_future(self):
-        return self.status == TeamDetail.NOT_ATTEMPTED and datetime.now(tz=timezone.get_current_timezone())<self.roundDetail.startingDate
+        return datetime.now(tz=timezone.get_current_timezone()) < self.roundDetail.startingDate
 
     def is_in_past(self):
-        return datetime.now(tz=timezone.get_current_timezone())>self.roundDetail.endingDate
+        return datetime.now(tz=timezone.get_current_timezone()) > self.roundDetail.endingDate
+
 
 class Response(models.Model):
-    batchid = models.IntegerField()
+    batch_id = models.IntegerField()
     question = models.ForeignKey(Question)  # The question
     roundDetail = models.ForeignKey(RoundDetail)  # The round
     user = models.ForeignKey(User, null=False, related_name="user")  # The answerer

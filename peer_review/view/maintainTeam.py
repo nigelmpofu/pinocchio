@@ -1,78 +1,115 @@
 import csv
 import os
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import HttpResponseRedirect
 from django.http import JsonResponse
-from django.shortcuts import render
-from django.utils import timezone
+from django.shortcuts import render, get_object_or_404
 
 from ..models import User, RoundDetail, TeamDetail, Document
+from peer_review.decorators.adminRequired import admin_required
 from peer_review.forms import DocumentForm
 from peer_review.view.userFunctions import user_error
+from django.template import loader
 
 
+@admin_required
 def maintain_team(request):
+    context = {'users': User.objects.filter(Q(is_active=1) & (Q(status='S') | Q(status='U'))),
+               'rounds': RoundDetail.objects.all(),
+               'teams': TeamDetail.objects.all()}
+
     if request.method == "POST":
         round_pk = request.POST.get("roundPk")
+        context['preselectedRoundPk'] = int(round_pk)
 
-        context = {'users': User.objects.filter(Q(is_active=1) & (Q(status='S') | Q(status='U'))),
-                   'rounds': RoundDetail.objects.all(),
-                   'teams': TeamDetail.objects.all(),
-                   'roundPk': round_pk}
-
-    else:
-        context = {'users': User.objects.filter(Q(is_active=1) & (Q(status='S') | Q(status='U'))),
-                   'rounds': RoundDetail.objects.all(),
-                   'teams': TeamDetail.objects.all(),
-                   'roundPk': "none"}
     return render(request, 'peer_review/maintainTeam.html', context)
 
 
+@admin_required
 def change_team_status(request, team_pk, status):
-    team = TeamDetail.objects.get(pk=team_pk)
+    team = get_object_or_404(TeamDetail, pk=team_pk)
     team.status = status
     team.save()
     return JsonResponse({'success': True})
 
 
-def change_user_team_for_round(request, round_pk, userId, team_name):
+@admin_required
+def change_user_team_for_round(request, round_pk, user_id, team_name):
     try:
-        team = TeamDetail.objects.filter(user_id=userId).get(roundDetail_id=round_pk)
+        team = TeamDetail.objects.filter(user_id=user_id).get(roundDetail_id=round_pk)
     except TeamDetail.DoesNotExist:
         team = TeamDetail(
-            user=User.objects.get(userId=userId),
-            roundDetail=RoundDetail.objects.get(pk=round_pk)
+            user=get_object_or_404(User, user_id=user_id),
+            roundDetail=get_object_or_404(RoundDetail, pk=round_pk)
         )
+
     team.teamName = team_name
     if team_name == 'emptyTeam':
-        team.status = 'NA'
-    team.save()
-    return JsonResponse({'success': True, 'team_pk': team.pk})
+        team.delete()
+    else:
+        team.save()
+    return JsonResponse({'success': True})
 
 
+@admin_required
 def get_teams_for_round(request, round_pk):
     teams = TeamDetail.objects.filter(roundDetail_id=round_pk)
-    response = {}
+    response = {"users": {},
+                "teamTables": {},
+                "teams": []}
+    team_sizes = {}
+    team_tables = {}
     for team in teams:
-        response[team.pk] = {
-            'userId': team.user.userId,
-            'teamName': team.teamName,
-            'status': team.status,
+        if team.teamName not in team_sizes:
+            team_sizes[team.teamName] = 0
+        team_sizes[team.teamName] += 1
+
+    for team in teams:
+        if team.teamName not in team_tables:
+            team_tables[team.teamName] = []
+
+        team_tables[team.teamName].append(team.user)
+        response["users"][team.user.user_id] = True
+
+    for userList in team_tables:
+        template = loader.get_template('peer_review/maintainTeam-teamPanel.html')
+        context = {
+            'team_name': userList,
+            'userList': team_tables[userList],
+            'team_size': team_sizes[userList],
         }
+        new_team = template.render(context, request)
+        response['teamTables'][userList] = new_team
+        response['teams'].append(userList)
     # print(response)
     return JsonResponse(response)
 
 
+@admin_required
+def get_new_team(request, team_name):
+    template = loader.get_template('peer_review/maintainTeam-teamPanel.html')
+    context = {
+        'team_name': team_name,
+        'userList': [],
+        'team_size': 0,
+
+    }
+    response = {'success': True, 'team': template.render(context, request)}
+    return JsonResponse(response)
+
+
+@admin_required
 def get_teams(request):
     response = {}
     if request.method == "GET":
         teams = TeamDetail.objects.all()
         for team in teams:
-            user = User.objects.get(pk=team.user.pk)
+            try:
+                user = User.objects.get(pk=team.user.pk)
+            except User.DoesNotExist:
+                return JsonResponse("Team has a user which doesn't exist")
             response[team.pk] = {
-                'userId': user.userId,
+                'user_id': user.user_id,
                 'initials': team.user.initials,
                 'surname': team.user.surname,
                 'round': team.roundDetail.name,
@@ -82,7 +119,7 @@ def get_teams(request):
             }
     elif request.method == "POST":
         user_pk = request.POST.get("pk")
-        user = User.objects.get(pk=user_pk)
+        user = get_object_or_404(User, pk=user_pk)
 
         teams = TeamDetail.objects.filter(user=user)
         for team in teams:
@@ -96,67 +133,73 @@ def get_teams(request):
     return JsonResponse(response)
 
 
+@admin_required
 def add_team_csv_info(team_list):
-    for row in team_list:
-        user_det_id = User.objects.get(userId=row['userID']).pk
-        round_det_id = RoundDetail.objects.get(name=row['roundDetail']).pk
-        change_user_team_for_round("", round_det_id, user_det_id, row['teamName'])
-    return 1
+    try:
+        for row in team_list:
+            user_det_id = User.objects.get(user_id=row['user_id']).pk
+            round_det_id = RoundDetail.objects.get(name=row['roundDetail']).pk
+            change_user_team_for_round("", round_det_id, user_det_id, row['teamName'])
+        return 1
+    except User.DoesNotExist:
+        return "One of the Users does not exist"
+    except RoundDetail.DoesNotExist:
+        return "One of the Rounds does not exist"
 
 
+@admin_required
 def submit_team_csv(request):
     if not request.user.is_authenticated():
         return user_error(request)
 
-    global errortype
+    global error_type
     if request.method == 'POST':
         form = DocumentForm(request.POST, request.FILES)
 
         if form.is_valid():
-            newdoc = Document(docfile=request.FILES['docfile'])
-            newdoc.save()
+            new_doc = Document(doc_file=request.FILES['doc_file'])
+            new_doc.save()
 
-            file_path = newdoc.docfile.url
+            file_path = new_doc.doc_file.url
             file_path = file_path[1:]
 
             team_list = list()
             error = False
 
-            documents = Document.objects.all()
-
             count = 0
-            with open(file_path) as csvfile:
-                reader = csv.DictReader(csvfile)
+            with open(file_path) as csv_file:
+                reader = csv.DictReader(csv_file)
                 for row in reader:
                     count += 1
                     valid = validate_team_csv(row)
                     if valid == 0:
-                        print(row['userID'])
+                        print(row['user_id'])
                         team_list.append(row)
                     else:
-                        error = True
                         message = "Oops! Something seems to be wrong with the CSV file at row " + str(count) + "."
 
                         row_list = list()
-                        row_list.append(row['userID'])
-                        row_list.append(row['roundDetail'])
-                        row_list.append(row['teamName'])
+                        try:
+                            row_list.append(row['user_id'])
+                            row_list.append(row['round_name'])
+                            row_list.append(row['team_name'])
+                        except KeyError:
+                            valid = 4
 
                         if valid == 1:
-                            errortype = "Incorrect number of fields."
+                            error_type = "Incorrect number of fields."
                         elif valid == 2:
-                            errortype = "Not all fields contain values."
-                        elif valid == 3:
-                            errortype = "user ID is not a number."
+                            error_type = "Not all fields contain values."
+                        elif valid == 4:
+                            error_type = "One of these headers does not exist, 'user_id', 'round_name', or 'team_name'."
 
                         os.remove(file_path)
-                        return render(request, 'peer_review/csvError.html',
-                                      {'message': message, 'row': row_list, 'error': errortype})
+                        return render(request, 'peer_review/csvTeamError.html',
+                                      {'message': message, 'row': row_list, 'error': error_type})
         else:
-            form = DocumentForm()
             message = "Oops! Something seems to be wrong with the CSV file."
-            errortype = "No file selected."
-            return render(request, 'peer_review/csvError.html', {'message': message, 'error': errortype})
+            error_type = "No file selected."
+            return render(request, 'peer_review/csvTeamError.html', {'message': message, 'error': error_type})
 
         if not error:
             add_team_csv_info(team_list)
@@ -174,9 +217,4 @@ def validate_team_csv(row):
     for key, value in row.items():
         if value is None:
             return 2
-        if key == "userID":
-            try:
-                int(value)
-            except ValueError:
-                return 3
     return 0

@@ -12,8 +12,9 @@
 
     <script src="{% static 'peer_review/bootstrap-sortable.js' %}"></script>
 
-    <link rel="stylesheet" href="{% static 'peer_review/css/datatables.min.css' %}"/>
-    <script src="{% static 'peer_review/js/datatables.min.js' %}"></script>
+    <link rel="stylesheet" href="{% static 'peer_review/css/dataTables.bootstrap.min.css' %}"/>
+    <script src="{% static 'peer_review/js/dataTables.min.js' %}"></script>
+    <script src="{% static 'peer_review/js/dataTables.bootstrap.min.js' %}"></script>
 
     <script src="{% static 'peer_review/js/modernizr-custom.js' %}"></script>
 
@@ -24,7 +25,7 @@
 </head>
 <body>
 
-{% if perms.is_staff %}
+{% if perms.is_staff or user.status == 'A' %}
     {% include "peer_review/baseAdmin.html" %}
 {% elif user.is_authenticated %}
     {% include "peer_review/baseUser.html" %}

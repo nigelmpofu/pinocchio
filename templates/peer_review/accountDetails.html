@@ -15,58 +15,64 @@
             <div class="panel panel-default">
                 <div class="panel-heading">
                     <h4 class="panel-title">
-                        <b>{{ user.userId }} - {{ user.initials }} ({{ user.name }}) {{ user.surname }}</b>
+                        <b>{{ user.user_id }} - {{ user.initials }} ({{ user.name }}) {{ user.surname }}</b>
                     </h4>
                 </div>
                 <div class="panel">
-                    <div class="panel-body form-horizontal">
+                    <div class="panel-body form-horizontal" id="user{{ user.user_id }}">
                         <div class="form-group">
                             <label for="title" class="col-sm-2 control-label">Title:</label>
                             <div class="col-sm-3">
-                                <input id="title" type="text" class="form-control" readonly="readonly"
-                                       value="{{ user.title }}"/>
+                                <div id="title" class="panel-disabled" data-id="title">{{ user.title }}</div>
                             </div>
 
                             <label for="initials" class="col-sm-2 control-label">Initials:</label>
                             <div class="col-sm-3">
-                                <input id="initials" type="text" class="form-control" readonly="readonly"
-                                       value="{{ user.initials }}"/>
+                                <div id="initials" class="panel-disabled" data-id="initials">{{ user.initials }}</div>
                             </div>
                         </div>
 
                         <div class="form-group">
                             <label for="name" class="col-sm-2 control-label">Name:</label>
                             <div class="col-sm-3">
-                                <input id="name" type="text" class="form-control" readonly="readonly"
-                                       value="{{ user.name }}"/>
+                                <div id="name" class="panel-disabled" data-id="name">{{ user.name }}</div>
                             </div>
 
                             <label for="surname" class="col-sm-2 control-label">Surname:</label>
                             <div class="col-sm-3">
-                                <input id="surname" type="text" class="form-control" readonly="readonly"
-                                       value="{{ user.surname }}"/>
+                                <div id="surname" class="panel-disabled" data-id="surname">{{ user.surname }}</div>
                             </div>
                         </div>
 
                         <div class="form-group">
                             <label for="email" class="col-sm-2 control-label">Email:</label>
                             <div class="col-sm-3">
-                                <input id="email" type="text" class="form-control" readonly="readonly"
-                                       value="{{ user.email }}"/>
+                                <div id="email" class="panel-disabled" data-id="email">{{ user.email }}</div>
                             </div>
 
                             <label for="cell" class="col-sm-2 control-label">Cell Number:</label>
                             <div class="col-sm-3">
-                                <input id="cell" type="text" class="form-control" readonly="readonly"
-                                       value="{{ user.cell }}"/>
+                                <div id="cell" class="panel-disabled" data-id="cell">{{ user.cell }}</div>
                             </div>
                         </div>
 
                         <div class="form-group">
-                            <label for="userId" class="col-sm-2 control-label">User Name:</label>
+                            <label for="user_id" class="col-sm-2 control-label">User Name:</label>
                             <div class="col-sm-3">
-                                <input id="userId" type="text" class="form-control" readonly="readonly"
-                                       value="{{ user.userId }}"/>
+                                <div id="user_id" class="panel-disabled" data-id="user_id">{{ user.user_id }}</div>
+                            </div>
+                            <label for="userStatus" class="col-sm-2 control-label">User Status:</label>
+                            <div class="col-sm-3">
+                                <div id="userStatus" class="panel-disabled" data-id="userStatus">{{ user.status }}</div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="col-sm-12">
+                               {% if is_logged_user == True %}
+                                   <button type="button" name="edit" class='btn btn-primary pull-right edit' data-toggle="modal" data-target="#editModal" data-csrf='{{ csrf_token }}' data-id="{{ user.user_id }}" data-pk="{{ user.pk }}">
+                                        Edit
+                                    </button>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -74,4 +80,10 @@
             </div>
         </div>
     </div>
+    {% include "peer_review/userEditModal.html" %}
+    <script>
+        $(document).ready(function () {
+           editUserHookUpdateButtons($("#user{{ user.user_id }}"));
+        });
+    </script>
 {% endblock context %}
